@@ -8,35 +8,39 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; background-color: #111111; }
+    body { font-family: 'Inter', sans-serif; background-color: #FDF6EC; color: #333; }
     h1,h2,h3 { font-family: 'Montserrat', sans-serif; }
-    
-    /* Card */
-    .card { background-color: #2C2C2C; transition: transform 0.1s; }
-    .card:hover { transform: scale(1.02); }
+
+    /* Card/List items */
+    .card, .list-item {
+      background-color: #EAD7FF; /* Lavender / Soft Peach */
+      transition: transform 0.1s;
+      border-radius: 10px;
+    }
+    .card:hover, .list-item:hover { transform: scale(1.02); }
 
     /* Filled buttons */
     .btn-primary {
-      background-color: #2979FF;
-      color: #fff;
+      background-color: #A7C7E7; /* Pastel Blue */
+      color: #333;
       font-weight: 700;
       text-transform: uppercase;
       border-radius: 10px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       transition: all 0.2s;
     }
-    .btn-primary:hover { background-color: #1C5ED6; }
+    .btn-primary:hover { background-color: #7FB3D5; }
 
     .btn-success {
-      background-color: #4CAF50;
-      color: #fff;
+      background-color: #B7E4C7; /* Pastel Green */
+      color: #333;
       font-weight: 700;
       text-transform: uppercase;
       border-radius: 10px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       transition: all 0.2s;
     }
-    .btn-success:hover { background-color: #3A9D42; }
+    .btn-success:hover { background-color: #99D5A8; }
 
     /* Border-only buttons */
     .btn-border {
@@ -45,20 +49,24 @@
       font-weight: 700;
       text-transform: uppercase;
       padding: 0.75rem 1rem;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
       transition: all 0.2s;
       background-color: transparent;
     }
-    .btn-border:hover {
-      filter: brightness(1.1);
-    }
+    .btn-border:hover { filter: brightness(1.1); }
+
+    /* Specific button borders */
+    .btn-border-green { border-color: #B7E4C7; color: #333; }
+    .btn-border-coral { border-color: #FFB3AB; color: #333; }
+    .btn-border-blue { border-color: #A7C7E7; color: #333; }
+    .btn-border-gray { border-color: #CCC; color: #333; }
 
     /* Input styling */
-    input, textarea { border-radius: 4px; border: 1px solid #555; background-color: #1E1E1E; color: #fff; }
-    input:focus, textarea:focus { outline: none; border-color: #2979FF; }
+    input, textarea { border-radius: 4px; border: 1px solid #CCC; background-color: #FFF9F2; color: #333; }
+    input:focus, textarea:focus { outline: none; border-color: #A7C7E7; }
   </style>
 </head>
-<body class="text-white min-h-screen p-4">
+<body class="min-h-screen p-4">
 
 <!-- Supabase -->
 <script type="module">
@@ -73,54 +81,54 @@ window.supabase = createClient(
 
 <!-- HOME -->
 <div id="home-page" class="flex flex-col gap-4">
-  <h1 class="text-4xl font-bold text-center text-white">Gym Tracker</h1>
+  <h1 class="text-4xl font-bold text-center">Gym Tracker</h1>
   <button id="view-workouts-btn" class="btn-primary w-full text-xl">View Workouts</button>
   <button id="start-workout-btn" class="btn-success w-full text-xl">Start Workout</button>
-  <p id="quote-home" class="text-gray-400 italic text-center"></p>
+  <p id="quote-home" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
 <!-- VIEW WORKOUTS -->
 <div id="view-workouts-page" class="hidden flex flex-col gap-3">
-  <button class="back-btn btn-border border-blue-500 text-blue-500">Back</button>
+  <button class="back-btn btn-border btn-border-blue w-full">Back</button>
   <h2 class="text-3xl font-bold text-center">Your Workouts</h2>
   <div id="workouts-list" class="flex flex-col gap-2 max-h-[70vh] overflow-y-auto"></div>
-  <button id="create-workout-btn" class="btn-border border-blue-500 text-blue-500 w-full">Create Workout</button>
-  <p id="quote-view" class="text-gray-400 italic text-center"></p>
+  <button id="create-workout-btn" class="btn-border btn-border-green w-full">Create Workout</button>
+  <p id="quote-view" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
 <!-- VIEW EXERCISES -->
 <div id="view-exercises-page" class="hidden flex flex-col gap-3">
-  <button class="back-btn btn-border border-blue-500 text-blue-500">Back</button>
+  <button class="back-btn btn-border btn-border-blue w-full">Back</button>
   <h2 id="selected-workout-title" class="text-3xl font-bold text-center">Select Workout</h2>
   <div id="exercises-list" class="flex flex-col gap-2 max-h-[65vh] overflow-y-auto"></div>
-  <button id="add-exercise-btn" class="btn-border border-blue-500 text-blue-500 w-full">Add Exercise</button>
-  <p id="quote-exercises" class="text-gray-400 italic text-center"></p>
+  <button id="add-exercise-btn" class="btn-border btn-border-green w-full">Add Exercise</button>
+  <p id="quote-exercises" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
 <!-- START WORKOUT -->
 <div id="start-workout-page" class="hidden flex flex-col gap-3">
-  <button class="back-btn btn-border border-blue-500 text-blue-500">Back</button>
+  <button class="back-btn btn-border btn-border-blue w-full">Back</button>
   <h2 id="start-workout-title" class="text-3xl font-bold text-center">Select Workout</h2>
   <div id="start-workout-list" class="flex flex-col gap-2 max-h-[65vh] overflow-y-auto"></div>
   <button id="finish-workout-btn" class="btn-success w-full mt-3 hidden">Finish Workout</button>
-  <p id="quote-start" class="text-gray-400 italic text-center"></p>
+  <p id="quote-start" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
 <!-- EXERCISE DETAIL -->
 <div id="exercise-detail-page" class="hidden flex flex-col gap-3">
-  <button class="back-btn btn-border border-blue-500 text-blue-500">Back</button>
+  <button class="back-btn btn-border btn-border-blue w-full">Back</button>
   <h2 id="exercise-title" class="text-3xl font-bold text-center"></h2>
 
-  <!-- Timer -->
+  <!-- TIMER -->
   <div id="timer-container" class="flex flex-col sm:flex-row items-center gap-2 justify-center mb-2">
-    <label for="timer-input" class="font-bold">Rest Timer (sec):</label>
-    <input id="timer-input" type="number" min="0" class="w-20 p-2 text-lg text-center" value="90">
-    <span id="timer-display" class="text-yellow-400 text-2xl font-bold">01:30</span>
-    <div class="flex gap-2 mt-2 sm:mt-0">
-      <button id="start-timer-btn" class="btn-primary px-4 py-2 text-lg">Start</button>
-      <button id="reset-timer-btn" class="btn-border border-gray-400 text-gray-400 px-4 py-2 text-lg">Reset</button>
-    </div>
+  <label for="timer-input" class="font-bold">Rest Timer (sec):</label>
+  <input id="timer-input" type="number" min="0" class="w-20 p-2 text-lg text-center" value="90">
+  <span id="timer-display" class="text-yellow-400 text-2xl font-bold">01:30</span>
+  <div class="flex gap-2 mt-2 sm:mt-0">
+    <button id="start-timer-btn" class="btn-primary px-4 py-2 text-lg">Start</button>
+    <button id="reset-timer-btn" class="btn-border border-gray-400 text-gray-400 px-4 py-2 text-lg">Reset</button>
   </div>
+</div>
 
   <!-- Sets -->
   <div id="sets-container" class="flex flex-col gap-3 max-h-[50vh] overflow-y-auto"></div>
@@ -129,8 +137,8 @@ window.supabase = createClient(
   <textarea id="exercise-note" class="p-3 rounded text-lg w-full" placeholder="Notes"></textarea>
   <button id="save-exercise-note" class="btn-primary w-full text-xl">Save</button>
 
-  <p id="exercise-pb" class="text-yellow-400 font-bold text-lg text-center"></p>
-  <p id="quote-exercise" class="text-gray-400 italic text-center"></p>
+  <p id="exercise-pb" class="text-yellow-300 font-bold text-lg text-center"></p>
+  <p id="quote-exercise" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
 </body>
