@@ -28,6 +28,7 @@
       border-radius: 10px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       transition: all 0.2s;
+      padding: 0.75rem 1rem;
     }
     .btn-primary:hover { background-color: #7FB3D5; }
 
@@ -39,6 +40,7 @@
       border-radius: 10px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       transition: all 0.2s;
+      padding: 0.75rem 1rem;
     }
     .btn-success:hover { background-color: #99D5A8; }
 
@@ -56,7 +58,7 @@
     .btn-border:hover { filter: brightness(1.1); }
 
     /* Specific button borders */
-    .btn-border-green { border-color: #B7E4C7; color: #333; }
+    .btn-border-coral { border-color: #FFB3AB; color: #333; background-color: #FFB3AB; }
     .btn-border-coral { border-color: #FFB3AB; color: #333; }
     .btn-border-blue { border-color: #A7C7E7; color: #333; }
     .btn-border-gray { border-color: #CCC; color: #333; }
@@ -82,8 +84,9 @@ window.supabase = createClient(
 <!-- HOME -->
 <div id="home-page" class="flex flex-col gap-4">
   <h1 class="text-4xl font-bold text-center">Gym Tracker</h1>
-  <button id="view-workouts-btn" class="btn-primary w-full text-xl">View Workouts</button>
-  <button id="start-workout-btn" class="btn-success w-full text-xl">Start Workout</button>
+  <button id="view-workouts-btn" class="btn-success w-full text-xl">My Workouts</button>
+  <button id="start-workout-btn" class="btn-primary w-full text-xl">Start Workout</button>
+  <button id="view-previous-btn" class="btn-border btn-border-coral w-full text-xl">View Previous Workouts</button>
   <p id="quote-home" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
@@ -94,6 +97,14 @@ window.supabase = createClient(
   <div id="workouts-list" class="flex flex-col gap-2 max-h-[70vh] overflow-y-auto"></div>
   <button id="create-workout-btn" class="btn-border btn-border-green w-full">Create Workout</button>
   <p id="quote-view" class="italic text-center mt-2 text-gray-700"></p>
+</div>
+
+<!-- PREVIOUS WORKOUTS -->
+<div id="previous-workouts-page" class="hidden flex flex-col gap-3">
+  <button class="back-btn btn-border btn-border-blue w-full">Back</button>
+  <h2 class="text-3xl font-bold text-center">Previous Sessions</h2>
+  <div id="previous-workouts-list" class="flex flex-col gap-2 max-h-[70vh] overflow-y-auto"></div>
+  <p id="quote-previous" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
 <!-- VIEW EXERCISES -->
