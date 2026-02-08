@@ -141,5 +141,30 @@ window.supabase = createClient(
   <p id="quote-exercise" class="italic text-center mt-2 text-gray-700"></p>
 </div>
 
+<!-- ADD EXERCISE MODAL -->
+<div id="add-exercise-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-lg p-6 w-full max-w-sm">
+    <h3 class="text-2xl font-bold mb-4">Add Exercise</h3>
+    <div class="flex flex-col gap-4">
+      <div>
+        <label class="block font-bold mb-2">Exercise Name:</label>
+        <input id="modal-exercise-name" type="text" placeholder="e.g., Bench Press" class="w-full p-2">
+      </div>
+      <div>
+        <label class="block font-bold mb-2">Number of Sets:</label>
+        <input id="modal-sets-count" type="number" min="1" value="4" class="w-full p-2">
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="modal-warmup-check" type="checkbox">
+        <label for="modal-warmup-check" class="font-bold">Include Warm-up Set (additional)</label>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button id="modal-cancel-btn" class="btn-border btn-border-gray flex-1">Cancel</button>
+        <button id="modal-save-btn" class="btn-success flex-1">Add Exercise</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
