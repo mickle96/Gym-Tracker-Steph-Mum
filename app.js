@@ -117,10 +117,26 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  document.getElementById("create-workout-btn").onclick = async () => {
-    const name = prompt("Workout name");
-    if (!name) return;
+  document.getElementById("create-workout-btn").onclick = () => {
+    document.getElementById("create-workout-modal").classList.remove("hidden");
+    document.getElementById("modal-workout-name").value = "";
+    document.getElementById("modal-workout-name").focus();
+  };
+
+  document.getElementById("modal-workout-cancel-btn").onclick = () => {
+    document.getElementById("create-workout-modal").classList.add("hidden");
+  };
+
+  document.getElementById("modal-workout-save-btn").onclick = async () => {
+    const name = document.getElementById("modal-workout-name").value.trim();
+
+    if (!name) {
+      alert("Please enter a workout name");
+      return;
+    }
+
     await supabase.from("workouts").insert({ name });
+    document.getElementById("create-workout-modal").classList.add("hidden");
     loadWorkouts();
   };
 
@@ -242,14 +258,36 @@ async function loadExercises(workout) {
     const list = document.getElementById("start-workout-list");
     list.innerHTML = "";
 
-    exercises.forEach(ex => {
+    for (const ex of exercises) {
+      // Check if this exercise has sets in the current session
+      const { data: sessionSets } = await supabase
+        .from("sets")
+        .select("*")
+        .eq("exercise_id", ex.id)
+        .eq("session_id", workout.session_id);
+
+      const isCompleted = sessionSets && sessionSets.length > 0;
+
       const div = document.createElement("div");
-      div.className = "p-3 rounded cursor-pointer";
+      div.className = "p-3 rounded cursor-pointer flex justify-between items-center";
       div.style.backgroundColor = "#FFEFD5"; // soft peach
-      div.textContent = ex.name;
+      
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = ex.name;
+      div.appendChild(nameSpan);
+
+      if (isCompleted) {
+        const checkmark = document.createElement("span");
+        checkmark.textContent = "✓";
+        checkmark.style.color = "#4CAF50";
+        checkmark.style.fontSize = "1.5em";
+        checkmark.style.fontWeight = "bold";
+        div.appendChild(checkmark);
+      }
+
       div.onclick = () => openExerciseDetail(ex);
       list.appendChild(div);
-    });
+    }
 
     if (exercises && exercises.length > 0) {
       document.getElementById("finish-workout-btn").classList.remove("hidden");
@@ -387,7 +425,8 @@ resetTimerBtn.onclick = () => {
         });
       }
 
-      alert("Saved!");
+      loadWorkoutExercises(currentWorkout);
+      currentSection = "workout-exercises";
     };
   }
 
