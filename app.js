@@ -487,23 +487,282 @@ resetTimerBtn.onclick = () => {
       if (isPB) pbExercises.push(exerciseId);
     }
 
-    let message = "Workout finished!\n";
-    if (pbExercises.length === 0) {
-      message += "No PBs today.";
-    } else {
+    // Build array of PB exercise names (if any) and show modal instead of alert
+    let pbNames = [];
+    if (pbExercises.length > 0) {
       const { data: names } = await supabase
         .from("exercises")
         .select("id, name")
         .in("id", pbExercises);
-
-      const list = names.map(n => `• ${n.name}`).join("\n");
-      message += `PBs today: ${pbExercises.length}\n\n${list}`;
+      pbNames = names ? names.map(n => n.name) : [];
     }
 
-    alert(message);
-
-    currentWorkout = null;
-    currentSection = "home";
-    showPage("home-page");
+    showFinishModal(pbNames, sessionSets);
   };
+
+  // Show a friendly modal summarising the workout finish and PBs
+  function showFinishModal(pbNames, sessionSets) {
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.left = 0;
+    overlay.style.top = 0;
+    overlay.style.width = "100%";
+    overlay.style.height = "100%";
+    overlay.style.backgroundColor = "rgba(0,0,0,0.45)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.zIndex = 9999;
+
+    const modal = document.createElement("div");
+    modal.style.width = "min(520px, 92%)";
+    modal.style.background = "#fff";
+    modal.style.borderRadius = "10px";
+    modal.style.boxShadow = "0 8px 30px rgba(0,0,0,0.2)";
+    modal.style.padding = "20px";
+    modal.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial";
+
+    const title = document.createElement("h3");
+    title.textContent = "Workout finished!";
+    title.style.margin = "0 0 8px 0";
+    title.style.fontSize = "1.1rem";
+    title.style.color = "#333";
+    modal.appendChild(title);
+
+    const subtitle = document.createElement("p");
+    subtitle.style.margin = "0 0 12px 0";
+    subtitle.style.color = "#555";
+    if (!pbNames || pbNames.length === 0) {
+      subtitle.textContent = "No PBs today — good effort, keep going!";
+    } else {
+      subtitle.textContent = `PBs today: ${pbNames.length}`;
+    }
+    modal.appendChild(subtitle);
+
+    if (pbNames && pbNames.length > 0) {
+      const list = document.createElement("ul");
+      list.style.margin = "0 0 16px 0";
+      list.style.paddingLeft = "1.2rem";
+      pbNames.forEach(n => {
+        const li = document.createElement("li");
+        li.textContent = n;
+        li.style.marginBottom = "6px";
+        list.appendChild(li);
+      });
+      modal.appendChild(list);
+    }
+
+    const btnRow = document.createElement("div");
+    btnRow.style.display = "flex";
+    btnRow.style.justifyContent = "flex-end";
+    btnRow.style.gap = "8px";
+
+    const review = document.createElement("button");
+    review.textContent = "Review session";
+    review.className = "btn-border";
+    review.style.padding = "8px 12px";
+    review.style.borderRadius = "6px";
+    review.style.border = "1px solid #2b6cb0";
+    review.style.background = "#2b6cb0";
+    review.style.color = "#fff";
+    review.onclick = async () => {
+      document.body.removeChild(overlay);
+      await showSessionSummary(sessionSets, pbNames);
+    };
+    btnRow.appendChild(review);
+
+    const ok = document.createElement("button");
+    ok.textContent = "OK";
+    ok.className = "btn-border";
+    ok.style.padding = "8px 12px";
+    ok.style.borderRadius = "6px";
+    ok.style.border = "1px solid #ccc";
+    ok.style.background = "#fff";
+    ok.onclick = () => {
+      document.body.removeChild(overlay);
+      currentWorkout = null;
+      currentSection = "home";
+      showPage("home-page");
+    };
+
+    btnRow.appendChild(ok);
+    modal.appendChild(btnRow);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    ok.focus();
+  }
+
+  // Show a modal summarising the session's sets grouped by exercise
+  async function showSessionSummary(sessionSets, pbNames = []) {
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.left = 0;
+    overlay.style.top = 0;
+    overlay.style.width = "100%";
+    overlay.style.height = "100%";
+    overlay.style.backgroundColor = "rgba(0,0,0,0.5)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.zIndex = 10000;
+
+    const modal = document.createElement("div");
+    modal.style.width = "min(720px, 96%)";
+    modal.style.maxHeight = "86vh";
+    modal.style.overflow = "auto";
+    modal.style.background = "#fff";
+    modal.style.borderRadius = "10px";
+    modal.style.boxShadow = "0 10px 40px rgba(0,0,0,0.25)";
+    modal.style.padding = "18px";
+    modal.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial";
+
+    const title = document.createElement("h3");
+    title.textContent = "Session summary";
+    title.style.margin = "0 0 6px 0";
+    title.style.color = "#222";
+    modal.appendChild(title);
+
+    const subtitle = document.createElement("p");
+    subtitle.style.margin = "0 0 12px 0";
+    subtitle.style.color = "#444";
+    subtitle.textContent = `Logged sets: ${sessionSets.length}` + (pbNames && pbNames.length ? ` · ${pbNames.length} PB(s)` : "");
+    modal.appendChild(subtitle);
+
+    // Map exercise IDs -> sets
+    const byEx = {};
+    sessionSets.forEach(s => {
+      const key = String(s.exercise_id);
+      if (!byEx[key]) byEx[key] = [];
+      byEx[key].push(s);
+    });
+
+    // Load exercise names (use string keys so lookups match)
+    const exIds = Object.keys(byEx).map(x => x);
+    let exMap = {};
+    if (exIds.length > 0) {
+      try {
+        const { data: exs } = await supabase.from("exercises").select("id, name").in("id", exIds);
+        if (exs) exs.forEach(e => exMap[String(e.id)] = e.name);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // Sort exercises by name for a clean list
+    const sortedExIds = Object.keys(byEx).sort((a, b) => {
+      const na = (exMap[a] || a).toString().toLowerCase();
+      const nb = (exMap[b] || b).toString().toLowerCase();
+      return na.localeCompare(nb);
+    });
+
+    sortedExIds.forEach(exId => {
+      const name = exMap[exId] || `Exercise ${exId}`;
+      const isPB = Array.isArray(pbNames) && pbNames.includes(name);
+
+      const block = document.createElement("div");
+      block.style.marginBottom = "12px";
+      block.style.padding = "10px";
+      block.style.borderRadius = "10px";
+      block.style.background = "#fff";
+      block.style.boxShadow = "0 4px 12px rgba(0,0,0,0.06)";
+
+      const h = document.createElement("div");
+      h.style.display = "flex";
+      h.style.justifyContent = "space-between";
+      h.style.alignItems = "center";
+
+      const leftTitle = document.createElement("div");
+      leftTitle.style.display = "flex";
+      leftTitle.style.alignItems = "center";
+      leftTitle.style.gap = "8px";
+
+      const exTitle = document.createElement("strong");
+      exTitle.textContent = name;
+      exTitle.style.fontSize = "1rem";
+      leftTitle.appendChild(exTitle);
+
+      if (isPB) {
+        const badge = document.createElement("span");
+        badge.textContent = "PB";
+        badge.style.background = "#D1FAE5";
+        badge.style.color = "#065F46";
+        badge.style.padding = "4px 8px";
+        badge.style.borderRadius = "999px";
+        badge.style.fontSize = "0.75rem";
+        leftTitle.appendChild(badge);
+      }
+
+      h.appendChild(leftTitle);
+
+      const count = document.createElement("span");
+      count.style.color = "#666";
+      count.textContent = `${byEx[exId].length} set(s)`;
+      h.appendChild(count);
+
+      block.appendChild(h);
+
+      const rows = document.createElement("div");
+      rows.style.marginTop = "8px";
+      byEx[exId].forEach((s, idx) => {
+        const r = document.createElement("div");
+        r.style.display = "grid";
+        r.style.gridTemplateColumns = "1fr 1fr";
+        r.style.gap = "8px";
+        r.style.alignItems = "center";
+        r.style.padding = "8px";
+        r.style.borderRadius = "8px";
+        r.style.background = "#F7FAFC";
+        r.style.marginBottom = "6px";
+
+        const col1 = document.createElement("div");
+        col1.textContent = `Set ${idx + 1}`;
+        col1.style.fontWeight = 600;
+        r.appendChild(col1);
+
+        const col2 = document.createElement("div");
+        col2.textContent = `${s.reps || 0} × ${s.weight || 0}kg`;
+        col2.style.textAlign = "right";
+        r.appendChild(col2);
+
+        rows.appendChild(r);
+      });
+
+      block.appendChild(rows);
+      modal.appendChild(block);
+    });
+
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.justifyContent = "flex-end";
+    row.style.gap = "8px";
+
+    const back = document.createElement("button");
+    back.textContent = "Back";
+    back.className = "btn-border";
+    back.style.padding = "8px 12px";
+    back.style.borderRadius = "6px";
+    back.onclick = () => {
+      document.body.removeChild(overlay);
+      showFinishModal(pbNames, sessionSets);
+    };
+
+    const close = document.createElement("button");
+    close.textContent = "Done";
+    close.className = "btn-border";
+    close.style.padding = "8px 12px";
+    close.style.borderRadius = "6px";
+    close.onclick = () => {
+      document.body.removeChild(overlay);
+      currentWorkout = null;
+      currentSection = "home";
+      showPage("home-page");
+    };
+
+    row.appendChild(back);
+    row.appendChild(close);
+    modal.appendChild(row);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    close.focus();
+  }
 });
