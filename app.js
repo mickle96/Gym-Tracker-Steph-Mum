@@ -124,38 +124,80 @@ document.addEventListener("DOMContentLoaded", () => {
     loadWorkouts();
   };
 
-  // ---------------- VIEW EXERCISES ----------------
-  async function loadExercises(workout) {
-    currentWorkout = workout;
-    currentSection = "view-exercises";
+  /* VIEW EXERCISES (READ ONLY + PB) */
+async function loadExercises(workout) {
+  currentWorkout = workout;
+  currentSection = "view-exercises";
+  showPage("view-exercises-page");
 
-    showPage("view-exercises-page");
-    document.getElementById("selected-workout-title").textContent = workout.name;
-    document.getElementById("quote-exercises").textContent = randomQuote();
+  document.getElementById("selected-workout-title").textContent = workout.name;
+  const list = document.getElementById("exercises-list");
+  list.innerHTML = "";
 
-    const { data: exercises } = await supabase
-      .from("exercises")
+  const { data: exercises } = await supabase
+    .from("exercises")
+    .select("*")
+    .eq("workout_id", workout.id);
+
+  for (const ex of exercises) {
+    const { data: sets } = await supabase
+      .from("sets")
       .select("*")
-      .eq("workout_id", workout.id);
+      .eq("exercise_id", ex.id);
 
-    const list = document.getElementById("exercises-list");
-    list.innerHTML = "";
+    let best = 0, label = "—";
+    sets.forEach(s => {
+      const score = s.weight * s.reps;
+      if (score > best) {
+        best = score;
+        label = `${s.weight}kg × ${s.reps}`;
+      }
+    });
 
-    for (const ex of exercises) {
-      const div = document.createElement("div");
-      div.className = "p-3 rounded flex justify-between items-center";
-      div.style.backgroundColor = "#FFEFD5"; // soft peach
-      div.textContent = ex.name;
-      div.onclick = () => openExerciseDetail(ex);
-
-      list.appendChild(div);
-    }
+    const div = document.createElement("div");
+    div.className = "card p-3 flex justify-between";
+    const warmupText = ex.has_warmup ? "✓ Warmup" : "—";
+    div.innerHTML = `
+      <div>
+        <div><span>${ex.name}</span></div>
+        <div class="text-sm text-gray-600">${ex.num_sets || 4} sets | ${warmupText}</div>
+      </div>
+      <strong>PB: ${label}</strong>
+    `;
+    list.appendChild(div);
   }
+}
 
-  document.getElementById("add-exercise-btn").onclick = async () => {
-    const name = prompt("Exercise name");
-    if (!name) return;
-    await supabase.from("exercises").insert({ name, workout_id: currentWorkout.id });
+  document.getElementById("add-exercise-btn").onclick = () => {
+    document.getElementById("add-exercise-modal").classList.remove("hidden");
+    document.getElementById("modal-exercise-name").value = "";
+    document.getElementById("modal-sets-count").value = "4";
+    document.getElementById("modal-warmup-check").checked = false;
+    document.getElementById("modal-exercise-name").focus();
+  };
+
+  document.getElementById("modal-cancel-btn").onclick = () => {
+    document.getElementById("add-exercise-modal").classList.add("hidden");
+  };
+
+  document.getElementById("modal-save-btn").onclick = async () => {
+    const name = document.getElementById("modal-exercise-name").value.trim();
+    const numSets = parseInt(document.getElementById("modal-sets-count").value) || 4;
+    const hasWarmup = document.getElementById("modal-warmup-check").checked;
+
+    if (!name) {
+      alert("Please enter an exercise name");
+      return;
+    }
+
+    await supabase.from("exercises").insert({ 
+      name, 
+      workout_id: currentWorkout.id,
+      num_sets: numSets,
+      has_warmup: hasWarmup
+    });
+
+    document.getElementById("add-exercise-modal").classList.add("hidden");
     loadExercises(currentWorkout);
   };
 
@@ -228,12 +270,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const setsContainer = document.getElementById("sets-container");
     setsContainer.innerHTML = "";
 
+    const numSets = ex.num_sets || 4;
+    const hasWarmup = ex.has_warmup || false;
+
     const { data: lastSets } = await supabase
       .from("sets")
       .select("*")
       .eq("exercise_id", ex.id)
       .order("created_at", { ascending: false })
-      .limit(4);
+      .limit(numSets + (hasWarmup ? 1 : 0));
 
     const { data: lastNote, error } = await supabase
       .from("exercise_notes")
@@ -256,14 +301,16 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     setsContainer.appendChild(headerDiv);
 
-    for (let i = 0; i < 4; i++) {
+    const totalSets = (hasWarmup ? 1 : 0) + numSets;
+    for (let i = 0; i < totalSets; i++) {
       const lastSet = lastSets.find(s => s.sets === i);
       const prevText = lastSet ? `${lastSet.reps} × ${lastSet.weight}kg` : '-';
 
       const div = document.createElement("div");
       div.className = "flex items-center gap-2 mb-1";
+      const setLabel = (hasWarmup && i === 0) ? "Warm-up" : `Set ${i - (hasWarmup ? 1 : 0) + 1}`;
       div.innerHTML = `
-        <span class="font-bold w-20">${i === 0 ? "Warm-up" : "Set " + i}:</span>
+        <span class="font-bold w-20">${setLabel}:</span>
         <input type="number" placeholder="Reps" class="w-16 p-1 text-center">
         <input type="number" placeholder="Kg" class="w-16 p-1 text-center">
         <div class="flex-1 text-right text-gray-500 text-sm">${prevText}</div>
