@@ -34,6 +34,10 @@ document.addEventListener("DOMContentLoaded", () => {
         showPage("home-page");
         currentSection = "home";
         break;
+      case "previous-workouts":
+        showPage("home-page");
+        currentSection = "home";
+        break;
       case "view-exercises":
         loadWorkouts();
         currentSection = "view-workouts";
@@ -57,6 +61,11 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("view-workouts-btn").onclick = () => {
     currentSection = "view-workouts";
     loadWorkouts();
+  };
+
+  document.getElementById("view-previous-btn").onclick = () => {
+    currentSection = "previous-workouts";
+    loadPreviousWorkouts();
   };
 
   document.getElementById("start-workout-btn").onclick = () => {
@@ -500,6 +509,134 @@ resetTimerBtn.onclick = () => {
     showFinishModal(pbNames, sessionSets);
   };
 
+  // ---------------- PREVIOUS WORKOUTS ----------------
+  async function loadPreviousWorkouts() {
+    showPage("previous-workouts-page");
+    document.getElementById("quote-previous").textContent = randomQuote();
+
+    const list = document.getElementById("previous-workouts-list");
+    list.innerHTML = "Loading...";
+
+    const { data, error } = await supabase
+      .from("sets")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      list.textContent = "Error loading previous sessions.";
+      return;
+    }
+
+    // Group by session_id
+    const sessions = {};
+    (data || []).forEach(s => {
+      if (!s.session_id) return;
+      if (!sessions[s.session_id]) sessions[s.session_id] = { workout_id: s.workout_id, last: s.created_at, sets: [] };
+      sessions[s.session_id].sets.push(s);
+      if (new Date(s.created_at) > new Date(sessions[s.session_id].last)) sessions[s.session_id].last = s.created_at;
+    });
+
+    const sessionArr = Object.keys(sessions).map(id => ({ id, ...sessions[id] }));
+    
+    // Fetch workout names
+    const workoutIds = Array.from(new Set(sessionArr.map(s => s.workout_id).filter(Boolean)));
+    let workoutMap = {};
+    if (workoutIds.length > 0) {
+      const { data: w } = await supabase.from("workouts").select("id, name").in("id", workoutIds);
+      if (w) w.forEach(x => workoutMap[x.id] = x.name);
+    }
+
+    // Get all historical sets once for comparison
+    const { data: allHistoricalSets } = await supabase.from("sets").select("*");
+    const historicalByExercise = {};
+    (allHistoricalSets || []).forEach(s => {
+      if (!historicalByExercise[s.exercise_id]) historicalByExercise[s.exercise_id] = [];
+      historicalByExercise[s.exercise_id].push(s);
+    });
+
+    // Calculate PBs for each session
+    for (const s of sessionArr) {
+      const setsByExercise = {};
+      s.sets.forEach(set => {
+        if (!setsByExercise[set.exercise_id]) setsByExercise[set.exercise_id] = [];
+        setsByExercise[set.exercise_id].push(set);
+      });
+
+      let pbCount = 0;
+      for (const exerciseId in setsByExercise) {
+        const todaysSets = setsByExercise[exerciseId];
+        const previousSets = (historicalByExercise[exerciseId] || []).filter(x => x.session_id !== s.id);
+        
+        let isPB = false;
+        if (previousSets.length === 0) {
+          isPB = true;
+        } else {
+          for (const set of todaysSets) {
+            const setScore = set.weight * set.reps;
+            const beatsAnyPrevious = previousSets.some(prev => {
+              const prevScore = prev.weight * prev.reps;
+              return setScore > prevScore;
+            });
+            if (beatsAnyPrevious) {
+              isPB = true;
+              break;
+            }
+          }
+        }
+        if (isPB) pbCount++;
+      }
+      s.pbCount = pbCount;
+    }
+
+    // Sort by last date desc
+    sessionArr.sort((a, b) => new Date(b.last) - new Date(a.last));
+
+    list.innerHTML = "";
+    if (sessionArr.length === 0) {
+      list.textContent = "No previous sessions found.";
+      return;
+    }
+
+    sessionArr.forEach(s => {
+      const div = document.createElement("div");
+      div.className = "p-3 rounded list-item";
+      div.style.display = "flex";
+      div.style.justifyContent = "space-between";
+      div.style.alignItems = "center";
+      div.style.gap = "12px";
+
+      const left = document.createElement("div");
+      left.style.display = "flex";
+      left.style.flexDirection = "column";
+      left.style.gap = "4px";
+      left.style.flex = "1";
+      left.style.minWidth = "0";
+
+      const name = document.createElement("div");
+      name.textContent = workoutMap[s.workout_id] || `Workout ${s.workout_id || '—'}`;
+      name.style.fontWeight = 700;
+      left.appendChild(name);
+
+      const meta = document.createElement("div");
+      meta.style.color = "#666";
+      meta.style.fontSize = "0.9rem";
+      meta.textContent = `${s.pbCount || 0} PB(s) · ${new Date(s.last).toLocaleDateString()}`;
+      left.appendChild(meta);
+
+      div.appendChild(left);
+
+      const btn = document.createElement("button");
+      btn.textContent = "View";
+      btn.className = "btn-border btn-border-blue";
+      btn.style.flexShrink = "0";
+      btn.onclick = () => showSessionSummary(s.sets, [], true);
+      div.appendChild(btn);
+
+      list.appendChild(div);
+    });
+  }
+
   // Show a friendly modal summarising the workout finish and PBs
   function showFinishModal(pbNames, sessionSets) {
     const overlay = document.createElement("div");
@@ -593,7 +730,7 @@ resetTimerBtn.onclick = () => {
   }
 
   // Show a modal summarising the session's sets grouped by exercise
-  async function showSessionSummary(sessionSets, pbNames = []) {
+  async function showSessionSummary(sessionSets, pbNames = [], fromPreviousWorkouts = false) {
     const overlay = document.createElement("div");
     overlay.style.position = "fixed";
     overlay.style.left = 0;
@@ -608,12 +745,12 @@ resetTimerBtn.onclick = () => {
 
     const modal = document.createElement("div");
     modal.style.width = "min(720px, 96%)";
-    modal.style.maxHeight = "86vh";
+    modal.style.maxHeight = "80vh";
     modal.style.overflow = "auto";
     modal.style.background = "#fff";
     modal.style.borderRadius = "10px";
     modal.style.boxShadow = "0 10px 40px rgba(0,0,0,0.25)";
-    modal.style.padding = "18px";
+    modal.style.padding = "min(18px, 4vw)";
     modal.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial";
 
     const title = document.createElement("h3");
@@ -743,7 +880,11 @@ resetTimerBtn.onclick = () => {
     back.style.borderRadius = "6px";
     back.onclick = () => {
       document.body.removeChild(overlay);
-      showFinishModal(pbNames, sessionSets);
+      if (fromPreviousWorkouts) {
+        loadPreviousWorkouts();
+      } else {
+        showFinishModal(pbNames, sessionSets);
+      }
     };
 
     const close = document.createElement("button");
@@ -759,10 +900,12 @@ resetTimerBtn.onclick = () => {
     };
 
     row.appendChild(back);
-    row.appendChild(close);
+    if (!fromPreviousWorkouts) {
+      row.appendChild(close);
+    }
     modal.appendChild(row);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
-    close.focus();
+    (fromPreviousWorkouts ? back : close).focus();
   }
 });
