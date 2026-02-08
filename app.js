@@ -8,10 +8,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let remainingSeconds = 90; // default timer
 
   const quotes = [
-    "Push yourself because no one else is going to do it for you.",
-    "The body achieves what the mind believes.",
-    "Strength does not come from the body, it comes from the will.",
-    "Sweat is fat crying."
+    "The hardest part is over. You showed up.",
+"You miss one hundred percent of the shots you don’t take.",
+"Do something today that your future self will thank you for.",
+"You must expect things of yourself before you can do them.",
+"We can push ourselves further. We always have more to give.",
+"Your mind will quit a thousand times before your body will."
   ];
 
   // ---------------- UTILITIES ----------------
@@ -86,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     data.forEach(workout => {
       const div = document.createElement("div");
-      div.className = "p-3 rounded flex justify-between items-center cursor-pointer";
+      div.className = "p-2 rounded flex justify-between items-center cursor-pointer";
       div.style.backgroundColor = "#E6E6FA"; // lavender card
       div.onclick = () => loadExercises(workout);
 
@@ -239,7 +241,7 @@ async function loadExercises(workout) {
 
     workouts.forEach(workout => {
       const div = document.createElement("div");
-      div.className = "p-3 rounded cursor-pointer";
+      div.className = "p-2 rounded cursor-pointer";
       div.style.backgroundColor = "#E6E6FA"; // lavender
       div.textContent = workout.name;
       div.onclick = () => startWorkoutSession(workout);
@@ -278,7 +280,7 @@ async function loadExercises(workout) {
       const isCompleted = sessionSets && sessionSets.length > 0;
 
       const div = document.createElement("div");
-      div.className = "p-3 rounded cursor-pointer flex justify-between items-center";
+      div.className = "p-2 rounded cursor-pointer flex justify-between items-center";
       div.style.backgroundColor = "#FFEFD5"; // soft peach
       
       const nameSpan = document.createElement("span");
@@ -600,7 +602,7 @@ resetTimerBtn.onclick = () => {
 
     sessionArr.forEach(s => {
       const div = document.createElement("div");
-      div.className = "p-3 rounded list-item";
+      div.className = "p-2 rounded list-item";
       div.style.display = "flex";
       div.style.justifyContent = "space-between";
       div.style.alignItems = "center";
