@@ -60,6 +60,30 @@
     /* Input styling */
     input, textarea { border-radius: 4px; border: 1px solid #CCC; background-color: #FFF9F2; color: #333; }
     input:focus, textarea:focus { outline: none; border-color: #A7C7E7; }
+
+    /* Modal card styling */
+    .modal-card {
+      background-color: #FFF9F2;
+      border: 2px solid #EAD7FF;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
+
+    /* Mobile optimizations */
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      h1 { font-size: 2rem; }
+      h2 { font-size: 1.5rem; }
+      .btn-primary, .btn-success, .btn-border { padding: 0.65rem 1rem; }
+      #workouts-list, #previous-workouts-list { max-height: 60vh; }
+      #exercises-list, #start-workout-list { max-height: 55vh; }
+      #sets-container { max-height: 45vh; }
+      .card, .list-item { border-radius: 12px; }
+      input, textarea { font-size: 16px; }
+    }
+
+    @media (pointer: coarse) {
+      .card:hover, .list-item:hover { transform: none; }
+    }
   </style>
 </head>
 <body class="min-h-screen p-4">
@@ -184,6 +208,30 @@ window.supabase = createClient(
         <button id="modal-workout-cancel-btn" class="btn-border btn-border-gray flex-1">Cancel</button>
         <button id="modal-workout-save-btn" class="btn-success flex-1">Create</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- FINISH WORKOUT CONFIRM -->
+<div id="finish-confirm-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+  <div class="modal-card rounded-lg p-6 w-full max-w-sm">
+    <h3 class="text-2xl font-bold mb-2">Finish workout?</h3>
+    <p class="text-sm text-gray-600">You can resume or finish now. Finishing will end the session and check for PBs.</p>
+    <div class="flex gap-2 mt-4">
+      <button id="finish-confirm-cancel" class="btn-border btn-border-gray flex-1">Resume</button>
+      <button id="finish-confirm-ok" class="btn-border btn-border-coral flex-1">Finish</button>
+    </div>
+  </div>
+</div>
+
+<!-- BACK CONFIRM -->
+<div id="back-confirm-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+  <div class="modal-card rounded-lg p-6 w-full max-w-sm">
+    <h3 id="back-confirm-title" class="text-2xl font-bold mb-2">Go back?</h3>
+    <p id="back-confirm-message" class="text-sm text-gray-600"></p>
+    <div class="flex gap-2 mt-4">
+      <button id="back-confirm-cancel" class="btn-border btn-border-gray flex-1">Stay</button>
+      <button id="back-confirm-ok" class="btn-border btn-border-coral flex-1">Go back</button>
     </div>
   </div>
 </div>
