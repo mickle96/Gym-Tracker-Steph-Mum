@@ -6,6 +6,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentSection = "home";
   let timerInterval = null;
   let remainingSeconds = 90; // default timer
+  let workoutsCache = null;
+  let previousWorkoutsCache = null;
+  let exercisesByWorkoutCache = new Map();
+  let setsByWorkoutCache = new Map();
+  let lastCompletedByWorkoutCache = null;
+  let sessionHasSavedSets = false;
 
   const quotes = [
     "The hardest part is over. You showed up.",
@@ -27,8 +33,118 @@ document.addEventListener("DOMContentLoaded", () => {
     return quotes[Math.floor(Math.random() * quotes.length)];
   }
 
+  function formatRelativeDateAEST(dateValue) {
+    const timeZone = "Australia/Sydney";
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const todayStr = new Intl.DateTimeFormat("en-AU", { timeZone }).format(new Date());
+    const dateStr = new Intl.DateTimeFormat("en-AU", { timeZone }).format(date);
+    if (dateStr === todayStr) return "Today";
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = new Intl.DateTimeFormat("en-AU", { timeZone }).format(yesterday);
+    if (dateStr === yStr) return "Yesterday";
+
+    return new Intl.DateTimeFormat("en-AU", {
+      timeZone,
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    }).format(date);
+  }
+
+  function normalizeSetsForPB(sets, hasWarmup) {
+    return (sets || []).filter(s => {
+      const reps = Number(s.reps) || 0;
+      const weight = Number(s.weight) || 0;
+      if (reps <= 0 || weight <= 0) return false;
+      if (hasWarmup && Number(s.sets) === 0) return false;
+      return true;
+    });
+  }
+
+  function computeBestSet(sets, hasWarmup) {
+    const filtered = normalizeSetsForPB(sets, hasWarmup);
+    if (filtered.length === 0) return null;
+    return filtered.reduce((best, s) => {
+      if (!best) return s;
+      if (s.weight > best.weight) return s;
+      if (s.weight === best.weight && s.reps > best.reps) return s;
+      return best;
+    }, null);
+  }
+
+  function isPBForSession(todaysSets, previousSets, hasWarmup) {
+    const today = normalizeSetsForPB(todaysSets, hasWarmup);
+    if (today.length === 0) return false;
+
+    const previous = normalizeSetsForPB(previousSets, hasWarmup);
+    if (previous.length === 0) return true;
+
+    let prevMaxWeight = 0;
+    const maxRepsAtWeight = {};
+    previous.forEach(s => {
+      if (s.weight > prevMaxWeight) prevMaxWeight = s.weight;
+      if (!maxRepsAtWeight[s.weight] || s.reps > maxRepsAtWeight[s.weight]) {
+        maxRepsAtWeight[s.weight] = s.reps;
+      }
+    });
+
+    return today.some(s => {
+      if (s.weight > prevMaxWeight) return true;
+      const prevReps = maxRepsAtWeight[s.weight];
+      return Number.isFinite(prevReps) && s.reps > prevReps;
+    });
+  }
+
+  function hasUnsavedExerciseInput() {
+    const note = document.getElementById("exercise-note");
+    const noteHasText = note && note.value.trim() !== "";
+    const inputs = Array.from(document.querySelectorAll("#sets-container input"));
+    const hasSetValues = inputs.some(input => input.value.trim() !== "");
+    return noteHasText || hasSetValues;
+  }
+
+  function openBackConfirm({ title, message, confirmText, cancelText }) {
+    return new Promise(resolve => {
+      const modal = document.getElementById("back-confirm-modal");
+      const titleEl = document.getElementById("back-confirm-title");
+      const messageEl = document.getElementById("back-confirm-message");
+      const okBtn = document.getElementById("back-confirm-ok");
+      const cancelBtn = document.getElementById("back-confirm-cancel");
+
+      titleEl.textContent = title || "Go back?";
+      messageEl.textContent = message || "";
+      okBtn.textContent = confirmText || "Go back";
+      cancelBtn.textContent = cancelText || "Stay";
+
+      const close = (result) => {
+        modal.classList.add("hidden");
+        okBtn.removeEventListener("click", onOk);
+        cancelBtn.removeEventListener("click", onCancel);
+        modal.removeEventListener("click", onBackdrop);
+        resolve(result);
+      };
+
+      const onOk = () => close(true);
+      const onCancel = () => close(false);
+      const onBackdrop = (e) => {
+        if (e.target === modal) close(false);
+      };
+
+      okBtn.addEventListener("click", onOk);
+      cancelBtn.addEventListener("click", onCancel);
+      modal.addEventListener("click", onBackdrop);
+
+      modal.classList.remove("hidden");
+      okBtn.focus();
+    });
+  }
+
   // ---------------- BACK BUTTON ----------------
-  document.addEventListener("click", e => {
+  document.addEventListener("click", async e => {
     if (!e.target.classList.contains("back-btn")) return;
 
     switch (currentSection) {
@@ -41,7 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
         currentSection = "home";
         break;
       case "view-exercises":
-        loadWorkouts();
+        showPage("view-workouts-page");
         currentSection = "view-workouts";
         break;
       case "start-workout":
@@ -49,11 +165,29 @@ document.addEventListener("DOMContentLoaded", () => {
         currentSection = "home";
         break;
       case "workout-exercises":
+        if (sessionHasSavedSets) {
+          const proceed = await openBackConfirm({
+            title: "Leave workout?",
+            message: "You have saved sets in this workout. If you go back now, your progress will not be saved.",
+            confirmText: "Leave",
+            cancelText: "Stay"
+          });
+          if (!proceed) return;
+        }
         loadStartWorkout();
         currentSection = "start-workout";
         break;
       case "exercise-detail":
-        loadWorkoutExercises(currentWorkout);
+        if (hasUnsavedExerciseInput()) {
+          const proceed = await openBackConfirm({
+            title: "Discard changes?",
+            message: "You have unsaved reps or notes. Going back will discard them.",
+            confirmText: "Go back",
+            cancelText: "Stay"
+          });
+          if (!proceed) return;
+        }
+        showPage("start-workout-page");
         currentSection = "workout-exercises";
         break;
     }
@@ -78,15 +212,46 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("quote-home").textContent = randomQuote();
 
   // ---------------- VIEW WORKOUTS ----------------
-  async function loadWorkouts() {
+  async function loadWorkouts(options = {}) {
+    const { force = false } = options;
     showPage("view-workouts-page");
     document.getElementById("quote-view").textContent = randomQuote();
 
-    const { data } = await supabase.from("workouts").select("*").order("created_at", { ascending: true });
+    if (!force && Array.isArray(workoutsCache)) {
+      renderWorkoutsList(workoutsCache);
+      refreshWorkoutsInBackground();
+      return;
+    }
+
+    const { data } = await supabase
+      .from("workouts")
+      .select("id, name, created_at")
+      .order("created_at", { ascending: true });
+    workoutsCache = data || [];
+    renderWorkoutsList(workoutsCache);
+  }
+
+  async function refreshWorkoutsInBackground() {
+    try {
+      const { data } = await supabase
+        .from("workouts")
+        .select("id, name, created_at")
+        .order("created_at", { ascending: true });
+      if (!data) return;
+      workoutsCache = data;
+      if (currentSection === "view-workouts") {
+        renderWorkoutsList(workoutsCache);
+        }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function renderWorkoutsList(workouts) {
     const list = document.getElementById("workouts-list");
     list.innerHTML = "";
 
-    data.forEach(workout => {
+    (workouts || []).forEach(workout => {
       const div = document.createElement("div");
       div.className = "p-2 rounded flex justify-between items-center cursor-pointer";
       div.style.backgroundColor = "#E6E6FA"; // lavender card
@@ -107,7 +272,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const newName = prompt("Edit workout name", workout.name);
         if (!newName) return;
         await supabase.from("workouts").update({ name: newName }).eq("id", workout.id);
-        loadWorkouts();
+        workoutsCache = null;
+        loadWorkouts({ force: true });
       };
       div.appendChild(editBtn);
 
@@ -120,7 +286,10 @@ document.addEventListener("DOMContentLoaded", () => {
         e.stopPropagation();
         if (!confirm("Delete this workout?")) return;
         await supabase.from("workouts").delete().eq("id", workout.id);
-        loadWorkouts();
+        exercisesByWorkoutCache.delete(workout.id);
+        setsByWorkoutCache.delete(workout.id);
+        workoutsCache = null;
+        loadWorkouts({ force: true });
       };
       div.appendChild(delBtn);
 
@@ -147,12 +316,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     await supabase.from("workouts").insert({ name });
+    workoutsCache = null;
     document.getElementById("create-workout-modal").classList.add("hidden");
-    loadWorkouts();
+    loadWorkouts({ force: true });
   };
 
   /* VIEW EXERCISES (READ ONLY + PB) */
-async function loadExercises(workout) {
+async function loadExercises(workout, options = {}) {
+  const { force = false, skipBackground = false } = options;
   currentWorkout = workout;
   currentSection = "view-exercises";
   showPage("view-exercises-page");
@@ -161,25 +332,43 @@ async function loadExercises(workout) {
   const list = document.getElementById("exercises-list");
   list.innerHTML = "";
 
-  const { data: exercises } = await supabase
-    .from("exercises")
-    .select("*")
-    .eq("workout_id", workout.id);
+  let exercises = exercisesByWorkoutCache.get(workout.id);
+  const usedExercisesCache = !!exercises && !force;
+  if (!exercises || force) {
+    const { data } = await supabase
+      .from("exercises")
+      .select("id, name, num_sets, has_warmup, workout_id")
+      .eq("workout_id", workout.id);
+    exercises = data || [];
+    exercisesByWorkoutCache.set(workout.id, exercises);
+  }
 
-  for (const ex of exercises) {
-    const { data: sets } = await supabase
-      .from("sets")
-      .select("*")
-      .eq("exercise_id", ex.id);
+  let setsByExercise = setsByWorkoutCache.get(workout.id);
+  const usedSetsCache = !!setsByExercise && !force;
+  if (!setsByExercise || force) {
+    const exerciseIds = (exercises || []).map(ex => ex.id);
+    setsByExercise = {};
+    if (exerciseIds.length > 0) {
+      const { data: allSets } = await supabase
+        .from("sets")
+        .select("exercise_id, reps, weight, sets")
+        .in("exercise_id", exerciseIds);
+      (allSets || []).forEach(s => {
+        if (!setsByExercise[s.exercise_id]) setsByExercise[s.exercise_id] = [];
+        setsByExercise[s.exercise_id].push(s);
+      });
+    }
+    setsByWorkoutCache.set(workout.id, setsByExercise);
+  }
 
-    let best = 0, label = "—";
-    sets.forEach(s => {
-      const score = s.weight * s.reps;
-      if (score > best) {
-        best = score;
-        label = `${s.weight}kg × ${s.reps}`;
-      }
-    });
+  if (!skipBackground && (usedExercisesCache || usedSetsCache)) {
+    refreshExercisesInBackground(workout.id);
+  }
+
+  (exercises || []).forEach(ex => {
+    const sets = setsByExercise[ex.id] || [];
+    const bestSet = computeBestSet(sets, ex.has_warmup);
+    const label = bestSet ? `${bestSet.weight}kg × ${bestSet.reps}` : "—";
 
     const div = document.createElement("div");
     div.className = "card p-3 flex justify-between";
@@ -192,8 +381,37 @@ async function loadExercises(workout) {
       <strong>PB: ${label}</strong>
     `;
     list.appendChild(div);
-  }
+  });
 }
+
+  async function refreshExercisesInBackground(workoutId) {
+    try {
+      const { data: exercises } = await supabase
+        .from("exercises")
+        .select("id, name, num_sets, has_warmup, workout_id")
+        .eq("workout_id", workoutId);
+      const exerciseIds = (exercises || []).map(ex => ex.id);
+      let setsByExercise = {};
+      if (exerciseIds.length > 0) {
+        const { data: allSets } = await supabase
+          .from("sets")
+          .select("exercise_id, reps, weight")
+          .in("exercise_id", exerciseIds);
+        (allSets || []).forEach(s => {
+          if (!setsByExercise[s.exercise_id]) setsByExercise[s.exercise_id] = [];
+          setsByExercise[s.exercise_id].push(s);
+        });
+      }
+      exercisesByWorkoutCache.set(workoutId, exercises || []);
+      setsByWorkoutCache.set(workoutId, setsByExercise);
+
+      if (currentSection === "view-exercises" && currentWorkout && currentWorkout.id === workoutId) {
+        loadExercises(currentWorkout, { force: true, skipBackground: true });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   document.getElementById("add-exercise-btn").onclick = () => {
     document.getElementById("add-exercise-modal").classList.remove("hidden");
@@ -225,25 +443,72 @@ async function loadExercises(workout) {
     });
 
     document.getElementById("add-exercise-modal").classList.add("hidden");
-    loadExercises(currentWorkout);
+    exercisesByWorkoutCache.delete(currentWorkout.id);
+    setsByWorkoutCache.delete(currentWorkout.id);
+    loadExercises(currentWorkout, { force: true });
   };
 
   // ---------------- START WORKOUT ----------------
-  async function loadStartWorkout() {
+  async function loadStartWorkout(options = {}) {
+    const { force = false } = options;
     currentSection = "start-workout";
     showPage("start-workout-page");
     document.getElementById("quote-start").textContent = randomQuote();
     document.getElementById("start-workout-title").textContent = "Select Workout";
 
-    const { data: workouts } = await supabase.from("workouts").select("*");
+    if (!force && Array.isArray(workoutsCache)) {
+      renderStartWorkoutList(workoutsCache, { force });
+      refreshWorkoutsInBackground();
+      return;
+    }
+
+    const { data: workouts } = await supabase
+      .from("workouts")
+      .select("id, name, created_at")
+      .order("created_at", { ascending: true });
+    workoutsCache = workouts || [];
+    renderStartWorkoutList(workoutsCache, { force });
+  }
+
+  async function renderStartWorkoutList(workouts, options = {}) {
+    const { force = false } = options;
     const list = document.getElementById("start-workout-list");
     list.innerHTML = "";
 
-    workouts.forEach(workout => {
+    let lastByWorkout = lastCompletedByWorkoutCache;
+    if (!lastByWorkout || force) {
+      lastByWorkout = {};
+      const workoutIds = (workouts || []).map(w => w.id).filter(Boolean);
+      if (workoutIds.length > 0) {
+        const { data: recentSets } = await supabase
+          .from("sets")
+          .select("workout_id, created_at")
+          .in("workout_id", workoutIds)
+          .order("created_at", { ascending: false });
+        (recentSets || []).forEach(s => {
+          if (!lastByWorkout[s.workout_id]) lastByWorkout[s.workout_id] = s.created_at;
+        });
+      }
+      lastCompletedByWorkoutCache = lastByWorkout;
+    }
+
+    (workouts || []).forEach(workout => {
       const div = document.createElement("div");
-      div.className = "p-2 rounded cursor-pointer";
+      div.className = "p-2 rounded cursor-pointer flex justify-between items-center";
       div.style.backgroundColor = "#E6E6FA"; // lavender
-      div.textContent = workout.name;
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = workout.name;
+      div.appendChild(nameSpan);
+
+      const lastDate = lastByWorkout[workout.id];
+      if (lastDate) {
+        const lastSpan = document.createElement("span");
+        lastSpan.className = "text-sm text-gray-600";
+        lastSpan.textContent = `Last completed: ${formatRelativeDateAEST(lastDate)}`;
+        div.appendChild(lastSpan);
+      }
+
       div.onclick = () => startWorkoutSession(workout);
       list.appendChild(div);
     });
@@ -253,6 +518,7 @@ async function loadExercises(workout) {
 
   function startWorkoutSession(workout) {
     currentWorkout = { ...workout, session_id: crypto.randomUUID() };
+    sessionHasSavedSets = false;
     loadWorkoutExercises(currentWorkout);
   }
 
@@ -261,28 +527,37 @@ async function loadExercises(workout) {
     showPage("start-workout-page");
     document.getElementById("start-workout-title").textContent = "Select Exercise";
 
-    const { data: exercises } = await supabase
-      .from("exercises")
-      .select("*")
-      .eq("workout_id", workout.id);
+    let exercises = exercisesByWorkoutCache.get(workout.id);
+    if (!exercises) {
+      const { data } = await supabase
+        .from("exercises")
+        .select("id, name, num_sets, has_warmup, workout_id")
+        .eq("workout_id", workout.id);
+      exercises = data || [];
+      exercisesByWorkoutCache.set(workout.id, exercises);
+    }
 
     const list = document.getElementById("start-workout-list");
     list.innerHTML = "";
 
-    for (const ex of exercises) {
-      // Check if this exercise has sets in the current session
+    const exerciseIds = (exercises || []).map(ex => ex.id);
+    let completedSet = new Set();
+    if (exerciseIds.length > 0) {
       const { data: sessionSets } = await supabase
         .from("sets")
-        .select("*")
-        .eq("exercise_id", ex.id)
-        .eq("session_id", workout.session_id);
+        .select("exercise_id")
+        .eq("session_id", workout.session_id)
+        .in("exercise_id", exerciseIds);
+      (sessionSets || []).forEach(s => completedSet.add(s.exercise_id));
+    }
 
-      const isCompleted = sessionSets && sessionSets.length > 0;
+    (exercises || []).forEach(ex => {
+      const isCompleted = completedSet.has(ex.id);
 
       const div = document.createElement("div");
       div.className = "p-2 rounded cursor-pointer flex justify-between items-center";
       div.style.backgroundColor = "#FFEFD5"; // soft peach
-      
+
       const nameSpan = document.createElement("span");
       nameSpan.textContent = ex.name;
       div.appendChild(nameSpan);
@@ -298,7 +573,7 @@ async function loadExercises(workout) {
 
       div.onclick = () => openExerciseDetail(ex);
       list.appendChild(div);
-    }
+    });
 
     if (exercises && exercises.length > 0) {
       document.getElementById("finish-workout-btn").classList.remove("hidden");
@@ -322,20 +597,24 @@ async function loadExercises(workout) {
     const numSets = ex.num_sets || 4;
     const hasWarmup = ex.has_warmup || false;
 
-    const { data: lastSets } = await supabase
-      .from("sets")
-      .select("*")
-      .eq("exercise_id", ex.id)
-      .order("created_at", { ascending: false })
-      .limit(numSets + (hasWarmup ? 1 : 0));
-
-    const { data: lastNote, error } = await supabase
-      .from("exercise_notes")
-      .select("note, created_at")
-      .eq("exercise_id", ex.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [lastSetsResult, lastNoteResult] = await Promise.all([
+      supabase
+        .from("sets")
+        .select("sets, reps, weight")
+        .eq("exercise_id", ex.id)
+        .order("created_at", { ascending: false })
+        .limit(numSets + (hasWarmup ? 1 : 0)),
+      supabase
+        .from("exercise_notes")
+        .select("note, created_at")
+        .eq("exercise_id", ex.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    ]);
+    const lastSets = lastSetsResult.data || [];
+    const lastNote = lastNoteResult.data || null;
+    const error = lastNoteResult.error;
 
     if (error) console.error(error);
     document.getElementById("exercise-note").value = lastNote ? lastNote.note : "";
@@ -412,6 +691,7 @@ resetTimerBtn.onclick = () => {
       const setsDivs = Array.from(setsContainer.children).slice(1);
       const noteValue = document.getElementById("exercise-note").value;
 
+      let insertedAny = false;
       for (let i = 0; i < setsDivs.length; i++) {
         const inputs = setsDivs[i].querySelectorAll("input");
         const reps = parseInt(inputs[0].value) || 0;
@@ -426,6 +706,7 @@ resetTimerBtn.onclick = () => {
             reps,
             weight
           });
+          insertedAny = true;
         }
       }
 
@@ -436,18 +717,61 @@ resetTimerBtn.onclick = () => {
         });
       }
 
+      if (insertedAny || noteValue.trim() !== "") {
+        sessionHasSavedSets = true;
+      }
+
+      setsByWorkoutCache.delete(currentWorkout.id);
+      lastCompletedByWorkoutCache = null;
       loadWorkoutExercises(currentWorkout);
       currentSection = "workout-exercises";
     };
   }
 
+  function openFinishConfirm() {
+    return new Promise(resolve => {
+      const modal = document.getElementById("finish-confirm-modal");
+      const okBtn = document.getElementById("finish-confirm-ok");
+      const cancelBtn = document.getElementById("finish-confirm-cancel");
+
+      const close = (result) => {
+        modal.classList.add("hidden");
+        okBtn.removeEventListener("click", onOk);
+        cancelBtn.removeEventListener("click", onCancel);
+        modal.removeEventListener("click", onBackdrop);
+        resolve(result);
+      };
+
+      const onOk = () => close(true);
+      const onCancel = () => close(false);
+      const onBackdrop = (e) => {
+        if (e.target === modal) close(false);
+      };
+
+      okBtn.addEventListener("click", onOk);
+      cancelBtn.addEventListener("click", onCancel);
+      modal.addEventListener("click", onBackdrop);
+
+      modal.classList.remove("hidden");
+      okBtn.focus();
+    });
+  }
+
   // ---------------- FINISH WORKOUT ----------------
   document.getElementById("finish-workout-btn").onclick = async () => {
     if (!currentWorkout || !currentWorkout.session_id) return;
+    const confirmed = await openFinishConfirm();
+    if (!confirmed) return;
+
+    await supabase.from("workout_sessions").insert({
+      session_id: currentWorkout.session_id,
+      workout_id: currentWorkout.id,
+      completed_at: new Date().toISOString()
+    });
 
     const { data: sessionSets, error: sessionError } = await supabase
       .from("sets")
-      .select("*")
+      .select("exercise_id, reps, weight, session_id, sets")
       .eq("session_id", currentWorkout.session_id);
 
     if (sessionError) {
@@ -467,33 +791,28 @@ resetTimerBtn.onclick = () => {
     });
 
     const pbExercises = [];
+    const exerciseIds = Object.keys(setsByExercise);
+    let warmupMap = {};
+    if (exerciseIds.length > 0) {
+      const { data: exMeta } = await supabase
+        .from("exercises")
+        .select("id, has_warmup")
+        .in("id", exerciseIds);
+      (exMeta || []).forEach(ex => {
+        warmupMap[ex.id] = !!ex.has_warmup;
+      });
+    }
 
     for (const exerciseId in setsByExercise) {
       const todaysSets = setsByExercise[exerciseId];
 
       const { data: previousSets } = await supabase
         .from("sets")
-        .select("*")
+        .select("reps, weight, session_id, sets")
         .eq("exercise_id", exerciseId)
         .neq("session_id", currentWorkout.session_id);
 
-      let isPB = false;
-
-      if (!previousSets || previousSets.length === 0) {
-        isPB = true;
-      } else {
-        for (const set of todaysSets) {
-          const setScore = set.weight * set.reps;
-          const beatsAnyPrevious = previousSets.some(prev => {
-            const prevScore = prev.weight * prev.reps;
-            return setScore > prevScore;
-          });
-          if (beatsAnyPrevious) {
-            isPB = true;
-            break;
-          }
-        }
-      }
+      const isPB = isPBForSession(todaysSets, previousSets || [], warmupMap[exerciseId]);
 
       if (isPB) pbExercises.push(exerciseId);
     }
@@ -509,24 +828,56 @@ resetTimerBtn.onclick = () => {
     }
 
     showFinishModal(pbNames, sessionSets);
+    sessionHasSavedSets = false;
   };
 
   // ---------------- PREVIOUS WORKOUTS ----------------
-  async function loadPreviousWorkouts() {
-    showPage("previous-workouts-page");
-    document.getElementById("quote-previous").textContent = randomQuote();
-
+  async function loadPreviousWorkouts(options = {}) {
+    const { force = false, silent = false } = options;
     const list = document.getElementById("previous-workouts-list");
-    list.innerHTML = "Loading...";
+    if (!silent) {
+      showPage("previous-workouts-page");
+      document.getElementById("quote-previous").textContent = randomQuote();
+      list.innerHTML = "Loading...";
+    }
 
+    if (!force && previousWorkoutsCache) {
+      renderPreviousWorkouts(previousWorkoutsCache);
+      refreshPreviousWorkoutsInBackground();
+      return;
+    }
+
+    const { data: finishedSessions, error: finishedError } = await supabase
+      .from("workout_sessions")
+      .select("session_id, workout_id, completed_at")
+      .order("completed_at", { ascending: false });
+
+    if (finishedError) {
+      console.error(finishedError);
+      list.textContent = "Error loading previous sessions.";
+      return;
+    }
+
+    if (!finishedSessions || finishedSessions.length === 0) {
+      list.textContent = "No previous workouts logged yet.";
+      return;
+    }
+
+    const finishedSessionIds = finishedSessions.map(s => s.session_id);
     const { data, error } = await supabase
       .from("sets")
-      .select("*")
+      .select("session_id, workout_id, exercise_id, created_at, reps, weight, sets")
+      .in("session_id", finishedSessionIds)
       .order("created_at", { ascending: false });
 
     if (error) {
       console.error(error);
       list.textContent = "Error loading previous sessions.";
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      list.textContent = "No previous workouts logged yet.";
       return;
     }
 
@@ -549,10 +900,20 @@ resetTimerBtn.onclick = () => {
       if (w) w.forEach(x => workoutMap[x.id] = x.name);
     }
 
+    // Fetch exercise names for details
+    const exerciseIds = Array.from(new Set((data || []).map(s => s.exercise_id).filter(Boolean)));
+    let exerciseMap = {};
+    if (exerciseIds.length > 0) {
+      const { data: ex } = await supabase
+        .from("exercises")
+        .select("id, name, has_warmup")
+        .in("id", exerciseIds);
+      if (ex) ex.forEach(x => exerciseMap[x.id] = x);
+    }
+
     // Get all historical sets once for comparison
-    const { data: allHistoricalSets } = await supabase.from("sets").select("*");
     const historicalByExercise = {};
-    (allHistoricalSets || []).forEach(s => {
+    (data || []).forEach(s => {
       if (!historicalByExercise[s.exercise_id]) historicalByExercise[s.exercise_id] = [];
       historicalByExercise[s.exercise_id].push(s);
     });
@@ -566,35 +927,102 @@ resetTimerBtn.onclick = () => {
       });
 
       let pbCount = 0;
+      let pbNames = [];
       for (const exerciseId in setsByExercise) {
         const todaysSets = setsByExercise[exerciseId];
-        const previousSets = (historicalByExercise[exerciseId] || []).filter(x => x.session_id !== s.id);
-        
-        let isPB = false;
-        if (previousSets.length === 0) {
-          isPB = true;
-        } else {
-          for (const set of todaysSets) {
-            const setScore = set.weight * set.reps;
-            const beatsAnyPrevious = previousSets.some(prev => {
-              const prevScore = prev.weight * prev.reps;
-              return setScore > prevScore;
-            });
-            if (beatsAnyPrevious) {
-              isPB = true;
-              break;
-            }
-          }
+        const sessionDate = new Date(s.last);
+        const previousSets = (historicalByExercise[exerciseId] || []).filter(x => {
+          return x.session_id !== s.id && new Date(x.created_at) < sessionDate;
+        });
+
+        const meta = exerciseMap[exerciseId] || {};
+        const isPB = isPBForSession(todaysSets, previousSets, !!meta.has_warmup);
+        if (isPB) {
+          pbCount++;
+          if (meta.name) pbNames.push(meta.name);
         }
-        if (isPB) pbCount++;
       }
       s.pbCount = pbCount;
+      s.pbNames = pbNames;
     }
 
     // Sort by last date desc
     sessionArr.sort((a, b) => new Date(b.last) - new Date(a.last));
 
+    previousWorkoutsCache = { sessionArr, workoutMap, exerciseMap };
+    renderPreviousWorkouts(previousWorkoutsCache);
+  }
+
+  async function refreshPreviousWorkoutsInBackground() {
+    try {
+      await loadPreviousWorkouts({ force: true, silent: true });
+      if (currentSection === "previous-workouts" && previousWorkoutsCache) {
+        renderPreviousWorkouts(previousWorkoutsCache);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function formatSessionDate(dateValue) {
+    const d = new Date(dateValue);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
+  }
+
+  function buildSessionDetails(session, exerciseMap) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "mt-3 text-sm";
+
+    const pbSummary = document.createElement("div");
+    pbSummary.className = "text-yellow-600";
+    pbSummary.textContent = session.pbNames && session.pbNames.length
+      ? `PBs: ${session.pbNames.length} (${session.pbNames.join(", ")})`
+      : "PBs: 0";
+    wrapper.appendChild(pbSummary);
+
+    const grouped = new Map();
+    (session.sets || []).forEach(set => {
+      if (!grouped.has(set.exercise_id)) grouped.set(set.exercise_id, []);
+      grouped.get(set.exercise_id).push(set);
+    });
+
+    grouped.forEach((sets, exerciseId) => {
+      const block = document.createElement("div");
+      block.className = "mt-3";
+
+      const name = document.createElement("div");
+      name.className = "font-semibold text-gray-700";
+      name.textContent = (exerciseMap[exerciseId] && exerciseMap[exerciseId].name) || "Exercise";
+      block.appendChild(name);
+
+      const list = document.createElement("div");
+      list.className = "mt-1 space-y-1 text-gray-600";
+
+      sets
+        .slice()
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        .forEach(set => {
+          const row = document.createElement("div");
+          const setIndex = Number.isFinite(set.sets) ? set.sets + 1 : "";
+          const label = setIndex ? `Set ${setIndex}` : "Set";
+          row.textContent = `${label}: ${set.reps || 0} x ${set.weight || 0}kg`;
+          list.appendChild(row);
+        });
+
+      block.appendChild(list);
+      wrapper.appendChild(block);
+    });
+
+    return wrapper;
+  }
+
+  function renderPreviousWorkouts(cache) {
+    const list = document.getElementById("previous-workouts-list");
     list.innerHTML = "";
+    const sessionArr = cache.sessionArr || [];
+    const workoutMap = cache.workoutMap || {};
+    const exerciseMap = cache.exerciseMap || {};
     if (sessionArr.length === 0) {
       list.textContent = "No previous sessions found.";
       return;
@@ -602,39 +1030,52 @@ resetTimerBtn.onclick = () => {
 
     sessionArr.forEach(s => {
       const div = document.createElement("div");
-      div.className = "p-2 rounded list-item";
-      div.style.display = "flex";
-      div.style.justifyContent = "space-between";
-      div.style.alignItems = "center";
-      div.style.gap = "12px";
+      div.className = "list-item p-3";
 
-      const left = document.createElement("div");
-      left.style.display = "flex";
-      left.style.flexDirection = "column";
-      left.style.gap = "4px";
-      left.style.flex = "1";
-      left.style.minWidth = "0";
+      const header = document.createElement("div");
+      header.className = "flex items-center justify-between gap-3";
 
-      const name = document.createElement("div");
-      name.textContent = workoutMap[s.workout_id] || `Workout ${s.workout_id || '—'}`;
-      name.style.fontWeight = 700;
-      left.appendChild(name);
+      const info = document.createElement("div");
+      info.className = "flex flex-col";
 
-      const meta = document.createElement("div");
-      meta.style.color = "#666";
-      meta.style.fontSize = "0.9rem";
-      meta.textContent = `${s.pbCount || 0} PB(s) · ${new Date(s.last).toLocaleDateString()}`;
-      left.appendChild(meta);
+      const title = document.createElement("div");
+      title.className = "font-semibold text-lg";
+      title.textContent = workoutMap[s.workout_id] || "Workout";
 
-      div.appendChild(left);
+      const subtitle = document.createElement("div");
+      subtitle.className = "text-sm text-gray-600";
+      subtitle.textContent = formatSessionDate(s.last);
 
-      const btn = document.createElement("button");
-      btn.textContent = "View";
-      btn.className = "btn-border btn-border-blue";
-      btn.style.flexShrink = "0";
-      btn.onclick = () => showSessionSummary(s.sets, [], true);
-      div.appendChild(btn);
+      info.appendChild(title);
+      info.appendChild(subtitle);
 
+      const pbSummary = document.createElement("div");
+      pbSummary.className = "text-sm text-yellow-600";
+      pbSummary.textContent = `PBs: ${s.pbCount || 0}`;
+
+      const toggleBtn = document.createElement("button");
+      toggleBtn.className = "btn-border btn-border-blue";
+      toggleBtn.textContent = "Details";
+
+      header.appendChild(info);
+      header.appendChild(pbSummary);
+      header.appendChild(toggleBtn);
+
+      const details = document.createElement("div");
+      details.className = "hidden";
+
+      toggleBtn.onclick = () => {
+        const isHidden = details.classList.contains("hidden");
+        if (isHidden && !details.dataset.loaded) {
+          details.appendChild(buildSessionDetails(s, exerciseMap));
+          details.dataset.loaded = "true";
+        }
+        details.classList.toggle("hidden", !isHidden);
+        toggleBtn.textContent = isHidden ? "Hide" : "Details";
+      };
+
+      div.appendChild(header);
+      div.appendChild(details);
       list.appendChild(div);
     });
   }
