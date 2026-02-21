@@ -5,12 +5,13 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentExercise = null;
   let currentSection = "home";
   let timerInterval = null;
-  let remainingSeconds = 90; // default timer
+  let remainingSeconds = 30; // default timer
   let workoutsCache = null;
   let previousWorkoutsCache = null;
   let exercisesByWorkoutCache = new Map();
   let setsByWorkoutCache = new Map();
   let lastCompletedByWorkoutCache = null;
+  let exercisesLoadRequestId = 0;
   let sessionHasSavedSets = false;
 
   const quotes = [
@@ -323,7 +324,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* VIEW EXERCISES (READ ONLY + PB) */
 async function loadExercises(workout, options = {}) {
-  const { force = false, skipBackground = false } = options;
+  const { force = false } = options;
+  const requestId = ++exercisesLoadRequestId;
   currentWorkout = workout;
   currentSection = "view-exercises";
   showPage("view-exercises-page");
@@ -339,6 +341,7 @@ async function loadExercises(workout, options = {}) {
       .from("exercises")
       .select("id, name, num_sets, has_warmup, workout_id")
       .eq("workout_id", workout.id);
+    if (requestId !== exercisesLoadRequestId) return;
     exercises = data || [];
     exercisesByWorkoutCache.set(workout.id, exercises);
   }
@@ -353,6 +356,7 @@ async function loadExercises(workout, options = {}) {
         .from("sets")
         .select("exercise_id, reps, weight, sets")
         .in("exercise_id", exerciseIds);
+      if (requestId !== exercisesLoadRequestId) return;
       (allSets || []).forEach(s => {
         if (!setsByExercise[s.exercise_id]) setsByExercise[s.exercise_id] = [];
         setsByExercise[s.exercise_id].push(s);
@@ -361,9 +365,7 @@ async function loadExercises(workout, options = {}) {
     setsByWorkoutCache.set(workout.id, setsByExercise);
   }
 
-  if (!skipBackground && (usedExercisesCache || usedSetsCache)) {
-    refreshExercisesInBackground(workout.id);
-  }
+  if (requestId !== exercisesLoadRequestId) return;
 
   (exercises || []).forEach(ex => {
     const sets = setsByExercise[ex.id] || [];
@@ -404,10 +406,6 @@ async function loadExercises(workout, options = {}) {
       }
       exercisesByWorkoutCache.set(workoutId, exercises || []);
       setsByWorkoutCache.set(workoutId, setsByExercise);
-
-      if (currentSection === "view-exercises" && currentWorkout && currentWorkout.id === workoutId) {
-        loadExercises(currentWorkout, { force: true, skipBackground: true });
-      }
     } catch (err) {
       console.error(err);
     }
@@ -480,13 +478,13 @@ async function loadExercises(workout, options = {}) {
       lastByWorkout = {};
       const workoutIds = (workouts || []).map(w => w.id).filter(Boolean);
       if (workoutIds.length > 0) {
-        const { data: recentSets } = await supabase
-          .from("sets")
-          .select("workout_id, created_at")
+        const { data: recentSessions } = await supabase
+          .from("workout_sessions")
+          .select("workout_id, completed_at")
           .in("workout_id", workoutIds)
-          .order("created_at", { ascending: false });
-        (recentSets || []).forEach(s => {
-          if (!lastByWorkout[s.workout_id]) lastByWorkout[s.workout_id] = s.created_at;
+          .order("completed_at", { ascending: false });
+        (recentSessions || []).forEach(s => {
+          if (!lastByWorkout[s.workout_id]) lastByWorkout[s.workout_id] = s.completed_at;
         });
       }
       lastCompletedByWorkoutCache = lastByWorkout;
@@ -894,22 +892,26 @@ resetTimerBtn.onclick = () => {
     
     // Fetch workout names
     const workoutIds = Array.from(new Set(sessionArr.map(s => s.workout_id).filter(Boolean)));
-    let workoutMap = {};
-    if (workoutIds.length > 0) {
-      const { data: w } = await supabase.from("workouts").select("id, name").in("id", workoutIds);
-      if (w) w.forEach(x => workoutMap[x.id] = x.name);
-    }
-
-    // Fetch exercise names for details
     const exerciseIds = Array.from(new Set((data || []).map(s => s.exercise_id).filter(Boolean)));
+
+    const [workoutsResult, exercisesResult] = await Promise.all([
+      workoutIds.length > 0
+        ? supabase.from("workouts").select("id, name").in("id", workoutIds)
+        : Promise.resolve({ data: [] }),
+      exerciseIds.length > 0
+        ? supabase.from("exercises").select("id, name, has_warmup").in("id", exerciseIds)
+        : Promise.resolve({ data: [] })
+    ]);
+
+    let workoutMap = {};
+    (workoutsResult.data || []).forEach(x => {
+      workoutMap[x.id] = x.name;
+    });
+
     let exerciseMap = {};
-    if (exerciseIds.length > 0) {
-      const { data: ex } = await supabase
-        .from("exercises")
-        .select("id, name, has_warmup")
-        .in("id", exerciseIds);
-      if (ex) ex.forEach(x => exerciseMap[x.id] = x);
-    }
+    (exercisesResult.data || []).forEach(x => {
+      exerciseMap[x.id] = x;
+    });
 
     // Get all historical sets once for comparison
     const historicalByExercise = {};
